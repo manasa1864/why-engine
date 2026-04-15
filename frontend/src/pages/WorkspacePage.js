@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
 import Sidebar from '../components/common/Sidebar';
 import AnalysisPanel from '../components/workspace/AnalysisPanel';
@@ -21,25 +22,26 @@ const STARTERS = {
   python:
 `# Write your solution here
 def solve():
-    n = int(input("Enter a number: "))
+    n = int(input())
     print(n)
 
 solve()`,
   javascript:
 `// Write your solution here
-function solve() {
-  const readline = require('readline');
-  const rl = readline.createInterface({ input: process.stdin });
-  rl.on('line', line => {
-    console.log(line.trim());
-    rl.close();
-  });
-}
-solve();`,
+const readline = require('readline');
+const rl = readline.createInterface({ input: process.stdin });
+let lines = [];
+rl.on('line', line => lines.push(line.trim()));
+rl.on('close', () => {
+  const n = parseInt(lines[0]);
+  console.log(n);
+});`,
   cpp:
 `#include <iostream>
 using namespace std;
 int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(NULL);
     int n;
     cin >> n;
     cout << n << endl;
@@ -59,7 +61,7 @@ public class Main {
 int main() {
     int n;
     scanf("%d", &n);
-    printf("%d\\n", n);
+    printf("%d\n", n);
     return 0;
 }`,
   go:
@@ -75,49 +77,104 @@ func main() {
 fn main() {
     let mut s = String::new();
     io::stdin().read_line(&mut s).unwrap();
-    println!("{}", s.trim());
+    let n: i64 = s.trim().parse().unwrap_or(0);
+    println!("{}", n);
 }`,
-  typescript: `function solve(): void {
-  // your code
-}
-solve();`,
-  ruby: `n = gets.to_i
+  typescript:
+`import * as readline from 'readline';
+const rl = readline.createInterface({ input: process.stdin });
+let lines: string[] = [];
+rl.on('line', (line: string) => lines.push(line.trim()));
+rl.on('close', () => {
+  const n = parseInt(lines[0]);
+  console.log(n);
+});`,
+  ruby:
+`n = gets.to_i
 puts n`,
 };
 
+/* ── Language autodetect ── */
+function detectLanguage(code) {
+  if (!code || code.trim().length < 8) return null;
+  const c = code.trim();
+
+  // Java — must be before C/C++ (public class is very specific)
+  if (/public\s+class\s+\w+/.test(c) || /import\s+java\./.test(c) || /System\.out\.print/.test(c)) return 'java';
+
+  // C++ — before C (has unique markers)
+  if (/#include\s*<(iostream|vector|string|algorithm|map|set|queue|stack|bits)/.test(c) ||
+      /using\s+namespace\s+std/.test(c) || /cout\s*<</.test(c) || /cin\s*>>/.test(c)) return 'cpp';
+
+  // C — after C++ check
+  if (/#include\s*<(stdio|stdlib|string|math|time)\.h>/.test(c) && !/cout/.test(c)) return 'c';
+
+  // Python
+  if (/def\s+\w+\s*\(/.test(c) || /^import\s+\w+/m.test(c) || /^from\s+\w+\s+import/m.test(c) ||
+      /print\s*\(/.test(c) || /int\s*\(\s*input\s*\(\)\s*\)/.test(c) || /:\s*$/.test(c.split('\n')[0])) return 'python';
+
+  // TypeScript — before JS (has type annotations)
+  if (/:\s*(string|number|boolean|void|any)\b/.test(c) || /interface\s+\w+/.test(c) ||
+      /<[A-Z][A-Za-z]+>/.test(c) || /as\s+(string|number|boolean)/.test(c)) return 'typescript';
+
+  // JavaScript
+  if (/const\s+\w+\s*=/.test(c) || /let\s+\w+\s*=/.test(c) || /require\s*\(/.test(c) ||
+      /console\.log/.test(c) || /=>\s*\{/.test(c) || /function\s+\w+\s*\(/.test(c)) return 'javascript';
+
+  // Go
+  if (/^package\s+main/m.test(c) || /func\s+main\s*\(\s*\)/.test(c) || /import\s+"fmt"/.test(c) ||
+      /fmt\.Print/.test(c) || /fmt\.Scan/.test(c)) return 'go';
+
+  // Rust
+  if (/fn\s+main\s*\(\s*\)/.test(c) || /let\s+mut\s+/.test(c) || /println!\s*\(/.test(c) ||
+      /use\s+std::/.test(c) || /impl\s+\w+/.test(c)) return 'rust';
+
+  // Ruby
+  if (/puts\s+/.test(c) || /gets\.chomp/.test(c) || /\.each\s+do\s*\|/.test(c) ||
+      /def\s+\w+\n/.test(c)) return 'ruby';
+
+  return null;
+}
+
 export default function WorkspacePage() {
   const { theme } = useTheme();
+  const nav = useNavigate();
 
-  /* ── state ── */
-  const [projects, setProjects]   = useState([]);
-  const [proj, setProj]           = useState(null);
-  const [chats, setChats]         = useState([]);
-  const [chat, setChat]           = useState(null);
-  const [lang, setLang]           = useState('python');
-  const [code, setCode]           = useState(STARTERS.python);
-  const [problem, setProblem]     = useState('');
-  const [approach, setApproach]   = useState('');
-  const [edges, setEdges]         = useState('');
+  /* ── State ── */
+  const [projects, setProjects]     = useState([]);
+  const [proj, setProj]             = useState(null);
+  const [chats, setChats]           = useState([]);
+  const [chat, setChat]             = useState(null);
+  const [lang, setLang]             = useState('python');
+  const [code, setCode]             = useState(STARTERS.python);
+  const [problem, setProblem]       = useState('');
+  const [approach, setApproach]     = useState('');
+  const [edges, setEdges]           = useState('');
   const [complexity, setComplexity] = useState('');
-  const [showThink, setShowThink] = useState(true);
-  const [result, setResult]       = useState(null);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [running, setRunning]     = useState(false);
-
-  /* ── terminal state ── */
-  const [termOpen, setTermOpen]   = useState(false);
-  const [termLines, setTermLines] = useState([]);
-  const [stdinVal, setStdinVal]   = useState('');
+  const [showThink, setShowThink]   = useState(
+    () => localStorage.getItem('why_showThink') !== 'false'
+  );
+  const [result, setResult]         = useState(null);
+  const [analyzing, setAnalyzing]   = useState(false);
+  const [running, setRunning]       = useState(false);
+  const [termOpen, setTermOpen]     = useState(false);
+  const [termLines, setTermLines]   = useState([]);
+  const [stdinVal, setStdinVal]     = useState('');
   const [awaitingInput, setAwaitingInput] = useState(false);
-  const stdinRef  = useRef(null);
-  const termOutputRef = useRef(null);
+  const [cmdHistory, setCmdHistory]   = useState([]);
+  const [historyIdx, setHistoryIdx]   = useState(-1);
+  const [autoDetected, setAutoDetected] = useState(null);
 
-  /* ── load projects on mount ── */
+  const stdinRef      = useRef(null);
+  const termOutputRef = useRef(null);
+  const editorRef     = useRef(null);
+
+  /* ── Load projects on mount ── */
   useEffect(() => {
     api.get('/projects').then(r => setProjects(r.data)).catch(() => {});
   }, []);
 
-  /* ── load chats when project changes ── */
+  /* ── Load chats when project changes ── */
   useEffect(() => {
     if (proj) {
       api.get(`/projects/${proj._id}/chats`).then(r => setChats(r.data)).catch(() => {});
@@ -126,14 +183,65 @@ export default function WorkspacePage() {
     }
   }, [proj]);
 
-  /* ── scroll terminal to bottom ── */
+  /* ── Auto-scroll terminal ── */
   useEffect(() => {
     if (termOutputRef.current) {
       termOutputRef.current.scrollTop = termOutputRef.current.scrollHeight;
     }
   }, [termLines]);
 
-  /* ── helpers ── */
+  /* ── Autodetect language when code changes ── */
+  useEffect(() => {
+    const detected = detectLanguage(code);
+    if (detected && detected !== lang) {
+      // Only suggest if current code isn't the starter template
+      const isStarter = Object.values(STARTERS).some(s => code.trim() === s.trim());
+      if (!isStarter) {
+        setAutoDetected(detected);
+      }
+    } else {
+      setAutoDetected(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code]);
+
+  /* ── Keyboard shortcuts ── */
+  useEffect(() => {
+    const handler = (e) => {
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (!ctrl) return;
+
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault(); handleRunClick(); return;
+      }
+      if (e.key === 'A' && e.shiftKey) {
+        e.preventDefault(); analyze(); return;
+      }
+      if (e.key === 'T' && e.shiftKey) {
+        e.preventDefault(); setShowThink(v => !v); return;
+      }
+      if (e.key === 'N' && e.shiftKey) {
+        e.preventDefault(); if (proj) newChat(); return;
+      }
+      if (e.key === 'l' || e.key === 'L') {
+        if (termOpen) { e.preventDefault(); setTermLines([]); } return;
+      }
+      if (e.key === '!' || (e.shiftKey && e.key === '1')) {
+        e.preventDefault(); nav('/dashboard'); return;
+      }
+      if (e.key === '@' || (e.shiftKey && e.key === '2')) {
+        e.preventDefault(); nav('/profile'); return;
+      }
+      if (e.key === '#' || (e.shiftKey && e.key === '3')) {
+        e.preventDefault(); nav('/settings'); return;
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proj, code, lang, termOpen, stdinVal, awaitingInput, running, analyzing]);
+
+  /* ── Helpers ── */
   const addTermLine = useCallback((text, type = '') => {
     setTermLines(prev => [...prev, { text, type }]);
   }, []);
@@ -145,7 +253,30 @@ export default function WorkspacePage() {
       setProj(data);
       setChat(null);
       setResult(null);
-    } catch {}
+    } catch (e) {
+      alert(e.response?.data?.error || 'Failed to create project');
+    }
+  };
+
+  const renameProj = async (id, name) => {
+    try {
+      const { data } = await api.patch(`/projects/${id}`, { name });
+      setProjects(p => p.map(x => x._id === id ? { ...x, name: data.name } : x));
+      if (proj?._id === id) setProj(p => ({ ...p, name: data.name }));
+    } catch (e) {
+      alert(e.response?.data?.error || 'Failed to rename project');
+    }
+  };
+
+  const deleteProj = async id => {
+    if (!window.confirm('Delete this project and all its analyses?')) return;
+    try {
+      await api.delete(`/projects/${id}`);
+      setProjects(p => p.filter(x => x._id !== id));
+      if (proj?._id === id) { setProj(null); setChat(null); setResult(null); }
+    } catch (e) {
+      alert(e.response?.data?.error || 'Failed to delete project');
+    }
   };
 
   const newChat = async () => {
@@ -162,7 +293,30 @@ export default function WorkspacePage() {
       setApproach('');
       setEdges('');
       setComplexity('');
-    } catch {}
+    } catch (e) {
+      alert(e.response?.data?.error || 'Failed to create chat');
+    }
+  };
+
+  const renameChat = async (projId, chatId, title) => {
+    try {
+      const { data } = await api.patch(`/projects/${projId}/chats/${chatId}`, { title });
+      setChats(p => p.map(c => c._id === chatId ? { ...c, title: data.title } : c));
+      if (chat?._id === chatId) setChat(c => ({ ...c, title: data.title }));
+    } catch (e) {
+      alert(e.response?.data?.error || 'Failed to rename analysis');
+    }
+  };
+
+  const deleteChat = async (projId, chatId) => {
+    if (!window.confirm('Delete this analysis?')) return;
+    try {
+      await api.delete(`/projects/${projId}/chats/${chatId}`);
+      setChats(p => p.filter(c => c._id !== chatId));
+      if (chat?._id === chatId) { setChat(null); setResult(null); }
+    } catch (e) {
+      alert(e.response?.data?.error || 'Failed to delete analysis');
+    }
   };
 
   const selChat = async c => {
@@ -170,64 +324,66 @@ export default function WorkspacePage() {
     try {
       const { data } = await api.get(`/analysis/chat/${c._id}`);
       if (data.entries?.length) {
-        const l = data.entries[data.entries.length - 1];
-        setCode(l.code || '');
-        setLang(l.language || 'python');
-        setProblem(l.problemStatement || '');
-        setApproach(l.preCodingThinking?.approach || '');
-        setEdges(l.preCodingThinking?.edgeCases || '');
-        setComplexity(l.preCodingThinking?.expectedComplexity || '');
+        const last = data.entries[data.entries.length - 1];
+        setCode(last.code || '');
+        setLang(last.language || 'python');
+        setProblem(last.problemStatement || '');
+        setApproach(last.preCodingThinking?.approach || '');
+        setEdges(last.preCodingThinking?.edgeCases || '');
+        setComplexity(last.preCodingThinking?.expectedComplexity || '');
         setResult({
-          executionResult: l.executionResult,
-          staticAnalysis: l.staticAnalysis?.issues,
-          testCases: l.testCases,
-          whyAnalysis: l.whyAnalysis,
-          deltaAnalysis: l.deltaAnalysis,
-          attemptNumber: l.attemptNumber,
-          pipelineSteps: l.pipelineSteps,
-          processingTime: l.processingTime,
+          executionResult:  last.executionResult,
+          staticAnalysis:   last.staticAnalysis?.issues,
+          staticSummary:    last.staticAnalysis?.summary,
+          testCases:        last.testCases,
+          whyAnalysis:      last.whyAnalysis,
+          deltaAnalysis:    last.deltaAnalysis,
+          attemptNumber:    last.attemptNumber,
+          pipelineSteps:    last.pipelineSteps,
+          processingTime:   last.processingTime,
         });
       }
-    } catch {}
+    } catch {
+      // Chat may be new with no entries — ok
+    }
   };
 
-  /* ── Run: open terminal, execute ── */
+  /* ── Run code ── */
   const run = useCallback(async (stdinOverride) => {
     if (!code.trim()) return;
-
-    // Open terminal if not open
-    setTermOpen(true);
     setRunning(true);
-
     const stdin = stdinOverride !== undefined ? stdinOverride : stdinVal;
-
-    addTermLine(`> Running ${lang}...`, 't-dim');
-
+    addTermLine(`▶  ${lang.toUpperCase()} · ${new Date().toLocaleTimeString()}`, 't-info');
     try {
       const { data } = await api.post('/code/run', { code, language: lang, stdin });
-      setResult(p => ({ ...p, executionResult: data }));
-
+      setResult(p => ({ ...(p || {}), executionResult: data }));
       if (data.stdout) {
-        addTermLine(data.stdout, data.status === 'Accepted' ? 't-ok' : '');
+        data.stdout.split('\n').forEach(line => {
+          if (line !== '') addTermLine(line, data.status === 'Accepted' ? 't-ok' : '');
+        });
       }
       if (data.stderr) {
-        addTermLine(data.stderr, 't-err');
+        data.stderr.split('\n').forEach(line => {
+          if (line !== '') addTermLine(line, 't-err');
+        });
       }
-      addTermLine(
-        `[${data.status}]  time: ${data.time}s  memory: ${data.memory}`,
-        data.status === 'Accepted' ? 't-info' : 't-err'
-      );
+      const statusColor = data.status === 'Accepted' ? 't-ok' : 't-err';
+      addTermLine(`─── ${data.status}  ·  ${data.time}s  ·  ${data.memory} ───`, statusColor);
+      if (localStorage.getItem('why_autoAnalyze') === 'true' && proj) {
+        analyze();
+      }
     } catch (e) {
       const msg = e.response?.data?.error || e.message;
-      addTermLine(`Error: ${msg}`, 't-err');
-      setResult(p => ({ ...p, executionResult: { stderr: msg, status: 'Error' } }));
+      addTermLine(`✗ Error: ${msg}`, 't-err');
+      setResult(p => ({ ...(p || {}), executionResult: { stderr: msg, status: 'Error' } }));
     } finally {
       setRunning(false);
       setAwaitingInput(false);
+      addTermLine('', '');
     }
-  }, [code, lang, stdinVal, addTermLine]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, lang, stdinVal, addTermLine, proj]);
 
-  /* ── Run button clicked: show terminal, focus stdin ── */
   const handleRunClick = () => {
     setTermOpen(true);
     setTermLines([]);
@@ -236,17 +392,47 @@ export default function WorkspacePage() {
     setTimeout(() => stdinRef.current?.focus(), 80);
   };
 
-  /* ── Terminal stdin submit ── */
-  const handleTerminalSubmit = useCallback(e => {
-    if (e.key === 'Enter' && awaitingInput) {
-      addTermLine(`$ ${stdinVal}`, 't-dim');
-      run(stdinVal);
+  const handleTerminalKeyDown = useCallback(e => {
+    if (e.key === 'Enter' && !e.shiftKey && awaitingInput) {
+      e.preventDefault();
+      const val = stdinVal;
+      if (val) {
+        setCmdHistory(h => [val, ...h.slice(0, 49)]);
+      }
+      setHistoryIdx(-1);
+      addTermLine(`$ ${val || '(no input)'}`, 't-dim');
+      run(val);
       setAwaitingInput(false);
+      return;
     }
-  }, [awaitingInput, stdinVal, run, addTermLine]);
+    // Shift+Enter = newline in input
+    if (e.key === 'Enter' && e.shiftKey) {
+      e.preventDefault();
+      setStdinVal(v => v + '\n');
+      return;
+    }
+    // Up arrow — history
+    if (e.key === 'ArrowUp' && awaitingInput) {
+      e.preventDefault();
+      setHistoryIdx(i => {
+        const next = Math.min(i + 1, cmdHistory.length - 1);
+        if (cmdHistory[next] !== undefined) setStdinVal(cmdHistory[next]);
+        return next;
+      });
+    }
+    // Down arrow — history
+    if (e.key === 'ArrowDown' && awaitingInput) {
+      e.preventDefault();
+      setHistoryIdx(i => {
+        const next = Math.max(i - 1, -1);
+        setStdinVal(next === -1 ? '' : cmdHistory[next] || '');
+        return next;
+      });
+    }
+  }, [awaitingInput, stdinVal, run, addTermLine, cmdHistory]);
 
-  /* ── Analyze ── */
-  const analyze = async () => {
+  /* ── Full analysis ── */
+  const analyze = useCallback(async () => {
     if (!code.trim()) return;
     if (!proj) { alert('Create or select a project first.'); return; }
     setAnalyzing(true);
@@ -256,34 +442,54 @@ export default function WorkspacePage() {
         language: lang,
         problemStatement: problem,
         preCodingThinking: { approach, edgeCases: edges, expectedComplexity: complexity },
-        chatId: chat?._id,
-        projectId: proj._id,
+        chatId:    chat?._id   || null,
+        projectId: proj?._id   || null,
       });
       setResult(data);
-      if (data.chatId && !chat) {
-        const nc = { _id: data.chatId, title: (problem || 'Analysis').slice(0, 60) };
-        setChat(nc);
-        setChats(p => [nc, ...p]);
+      if (data.chatId && !chat?._id) {
+        const newC = { _id: data.chatId, id: data.chatId, title: (problem || 'Analysis').slice(0, 60) };
+        setChat(newC);
+        setChats(p => [newC, ...p]);
       }
     } catch (e) {
+      const errMsg = e.response?.data?.error || e.message;
       setResult({
-        executionResult: { stderr: e.response?.data?.error || e.message, status: 'Error' },
-        pipelineSteps: e.response?.data?.pipelineSteps,
+        executionResult: { stderr: errMsg, status: 'Error' },
+        pipelineSteps:   e.response?.data?.pipelineSteps || [],
+        failedAt:        e.response?.data?.failedAt,
       });
     } finally {
       setAnalyzing(false);
     }
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, lang, problem, approach, edges, complexity, chat, proj]);
 
-  /* ── Language change ── */
   const chLang = v => {
     setLang(v);
+    setAutoDetected(null);
     const isDefault = Object.values(STARTERS).some(s => code.trim() === s.trim());
     if (!code || isDefault) setCode(STARTERS[v] || '');
   };
 
-  /* ── Terminal clear ── */
-  const clearTerminal = () => setTermLines([]);
+  const acceptDetected = () => {
+    if (autoDetected) {
+      setLang(autoDetected);
+      setAutoDetected(null);
+    }
+  };
+
+  /* ── Editor options from settings ── */
+  const fontSize       = parseInt(localStorage.getItem('why_fontSize') || '14');
+  const editorTheme    = localStorage.getItem('why_editorTheme') || (theme === 'light' ? 'vs' : 'vs-dark');
+  const tabSize        = parseInt(localStorage.getItem('why_tabSize') || (lang === 'python' ? '4' : '2'));
+  const wordWrap       = localStorage.getItem('why_wordWrap') || 'off';
+  const fontFamily     = localStorage.getItem('why_fontFamily') || "'JetBrains Mono', 'Fira Code', monospace";
+  const lineHeight     = parseFloat(localStorage.getItem('why_lineHeight') || '1.55');
+  const minimapEnabled = localStorage.getItem('why_minimap') !== 'false';
+  const bracketsEnabled= localStorage.getItem('why_brackets') !== 'false';
+  const acEnabled      = localStorage.getItem('why_autocomplete') !== 'false';
+  const renderWS       = localStorage.getItem('why_renderWS') || 'selection';
+  const cursorBlink    = localStorage.getItem('why_cursorBlinking') || 'smooth';
 
   return (
     <div className="app">
@@ -296,14 +502,18 @@ export default function WorkspacePage() {
         onSelectChat={selChat}
         onNewProject={newProj}
         onNewChat={newChat}
+        onRenameProject={renameProj}
+        onDeleteProject={deleteProj}
+        onRenameChat={renameChat}
+        onDeleteChat={deleteChat}
       />
 
       <div className="main">
-        {/* Top bar */}
+        {/* ── Top bar ── */}
         <div className="top">
           <div className="top-t">
             {proj
-              ? <><b>{proj.name}</b>{chat ? ` / ${chat.title}` : ''}</>
+              ? <><b>{proj.name}</b>{chat ? ` / ${chat.title}` : ' — select or create an analysis'}</>
               : 'Select or create a project to begin'
             }
           </div>
@@ -311,35 +521,43 @@ export default function WorkspacePage() {
             <button
               className="btn btn-g btn-sm"
               onClick={() => setShowThink(t => !t)}
+              title="Ctrl+Shift+T"
             >
-              {showThink ? 'Hide' : 'Show'} Thinking
+              {showThink ? 'Hide Thinking' : 'Show Thinking'}
             </button>
             <button
               className="btn btn-s btn-sm"
               onClick={handleRunClick}
               disabled={running || !code.trim()}
-              title="Run code (Ctrl+Enter)"
+              title="Run code — Ctrl+Enter"
             >
-              {running ? <><div className="spinner" /> Running</> : 'Run'}
+              {running ? <><div className="spinner" /> Running</> : '▶ Run'}
             </button>
             <button
-              className="btn btn-p btn-sm"
+              className="btn btn-gold btn-sm"
               onClick={analyze}
               disabled={analyzing || !code.trim()}
-              title="Full WHY analysis"
+              title="Full WHY analysis — Ctrl+Shift+A"
             >
-              {analyzing ? <><div className="spinner" /> Analyzing</> : 'Analyze'}
+              {analyzing ? <><div className="spinner" /> Analyzing...</> : 'Analyze'}
             </button>
           </div>
         </div>
 
-        {/* Workspace */}
+        {/* ── Workspace ── */}
         <div className="ws">
           {/* Left: editor column */}
           <div className="ws-ed">
+
             {/* Pre-coding thinking panel */}
             {showThink && (
               <div className="think">
+                <div className="think-hd">
+                  <span>Pre-Coding Thinking Check</span>
+                  <span style={{ fontSize: '.72rem', color: 'var(--text-3)' }}>
+                    Fill before coding — compared against your implementation
+                  </span>
+                </div>
                 <label>Problem Statement</label>
                 <textarea
                   value={problem}
@@ -357,11 +575,11 @@ export default function WorkspacePage() {
                     />
                   </div>
                   <div>
-                    <label>Edge Cases</label>
+                    <label>Edge Cases You're Aware Of</label>
                     <input
                       value={edges}
                       onChange={e => setEdges(e.target.value)}
-                      placeholder="What could go wrong?"
+                      placeholder="Empty input, negatives, overflow..."
                     />
                   </div>
                   <div>
@@ -369,7 +587,7 @@ export default function WorkspacePage() {
                     <input
                       value={complexity}
                       onChange={e => setComplexity(e.target.value)}
-                      placeholder="O(n), O(n log n)..."
+                      placeholder="O(n), O(n log n), O(n²)..."
                     />
                   </div>
                 </div>
@@ -385,108 +603,176 @@ export default function WorkspacePage() {
               >
                 {LANGS.map(l => <option key={l.v} value={l.v}>{l.l}</option>)}
               </select>
-              <span className="att">Attempt #{result?.attemptNumber || 1}</span>
+
+              {/* Autodetect banner */}
+              {autoDetected && (
+                <div className="autodetect-banner">
+                  <span>Detected: <b>{autoDetected.toUpperCase()}</b></span>
+                  <button className="btn btn-p btn-sm" style={{ padding: '2px 8px', fontSize: '.7rem' }}
+                    onClick={acceptDetected}>Switch</button>
+                  <button className="btn-i" style={{ width: 18, height: 18, fontSize: '.75rem' }}
+                    onClick={() => setAutoDetected(null)}>×</button>
+                </div>
+              )}
+
+              <span className="att" style={{ marginLeft: 'auto' }}>
+                Attempt #{result?.attemptNumber || 1}
+              </span>
+              {result?.pipelineSteps && (
+                <span style={{ fontSize: '.68rem', color: 'var(--text-3)' }}>
+                  {result.pipelineSteps.length} steps{result.processingTime ? ` · ${(result.processingTime/1000).toFixed(1)}s` : ''}
+                </span>
+              )}
             </div>
 
-            {/* Monaco editor */}
-            <div style={{ flex: 1 }}>
+            {/* Monaco Editor */}
+            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
               <Editor
                 height="100%"
                 language={lang === 'cpp' ? 'cpp' : lang}
                 value={code}
                 onChange={v => setCode(v || '')}
-                theme={theme === 'light' ? 'vs' : 'vs-dark'}
+                theme={editorTheme}
+                onMount={(ed, monaco) => {
+                  editorRef.current = ed;
+                  ed.layout();
+                  // monaco.editor.remeasureFonts() recalculates character widths
+                  // after custom fonts load — without this Monaco uses fallback
+                  // metrics and every click lands one character off from the cursor
+                  requestAnimationFrame(() => { ed.layout(); monaco.editor.remeasureFonts(); });
+                  setTimeout(() => { ed.layout(); monaco.editor.remeasureFonts(); }, 200);
+                  setTimeout(() => { ed.layout(); monaco.editor.remeasureFonts(); }, 600);
+                  // Also remeasure once the browser finishes loading all fonts
+                  document.fonts.ready.then(() => { ed.layout(); monaco.editor.remeasureFonts(); });
+                  // ResizeObserver keeps layout correct after panel resizes
+                  const container = ed.getContainerDomNode();
+                  if (container?.parentElement) {
+                    const ro = new ResizeObserver(() => ed.layout());
+                    ro.observe(container.parentElement);
+                  }
+                }}
                 options={{
-                  fontSize: 14,
-                  fontFamily: "'JetBrains Mono', monospace",
-                  minimap: { enabled: false },
+                  fontSize,
+                  fontFamily,
+                  minimap: { enabled: minimapEnabled },
                   padding: { top: 12, bottom: 12 },
                   scrollBeyondLastLine: false,
-                  wordWrap: 'on',
+                  wordWrap,
+                  lineHeight,
                   lineNumbers: 'on',
                   smoothScrolling: true,
-                  cursorBlinking: 'smooth',
-                  bracketPairColorization: { enabled: true },
+                  cursorBlinking: cursorBlink,
+                  cursorStyle: 'line',
+                  bracketPairColorization: { enabled: bracketsEnabled },
                   renderLineHighlight: 'line',
-                  suggest: { showKeywords: true },
+                  suggest: { showKeywords: acEnabled },
+                  quickSuggestions: acEnabled ? { other: true, comments: false, strings: false } : false,
+                  tabSize,
+                  automaticLayout: false,
+                  fixedOverflowWidgets: true,
+                  accessibilitySupport: 'off',
+                  scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
+                  overviewRulerLanes: 0,
+                  hideCursorInOverviewRuler: true,
+                  renderWhitespace: renderWS,
+                  glyphMargin: false,
+                  folding: true,
+                  foldingHighlight: false,
+                  lineNumbersMinChars: 3,
                 }}
               />
             </div>
 
-            {/* Terminal panel — appears when Run is clicked */}
+            {/* Terminal */}
             {termOpen && (
               <div className="terminal-wrap">
                 <div className="terminal-bar">
-                  <span>Terminal</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div className="terminal-dots">
+                      <span className="t-dot t-dot-red" />
+                      <span className="t-dot t-dot-yellow" />
+                      <span className="t-dot t-dot-green" />
+                    </div>
+                    <span>Terminal</span>
+                    {running && <span className="t-dim" style={{ fontSize: '.68rem' }}>running...</span>}
+                  </div>
                   <div className="terminal-bar-actions">
                     <button
-                      className="btn btn-g btn-sm"
-                      style={{ padding: '2px 8px', fontSize: '0.72rem' }}
-                      onClick={clearTerminal}
+                      className="term-btn"
+                      onClick={() => setTermLines([])}
+                      title="Clear terminal — Ctrl+L"
                     >
                       Clear
                     </button>
                     <button
-                      className="btn-i"
-                      style={{ width: 22, height: 22, fontSize: '0.85rem' }}
+                      className="term-btn term-btn-close"
                       onClick={() => { setTermOpen(false); setAwaitingInput(false); }}
-                      title="Close terminal"
+                      title="Close"
                     >
-                      &times;
+                      ✕
                     </button>
                   </div>
                 </div>
 
                 <div className="terminal-output" ref={termOutputRef}>
                   {termLines.map((ln, i) => (
-                    <div key={i} className={ln.type}>{ln.text}</div>
+                    <div key={i} className={`term-line ${ln.type}`}>{ln.text || '\u00A0'}</div>
                   ))}
-                  {awaitingInput && !running && (
-                    <div className="t-dim" style={{ fontStyle: 'italic', marginTop: 2 }}>
-                      [Provide stdin below and press Enter to execute — leave empty if no input needed]
-                    </div>
-                  )}
                   {running && (
-                    <div className="t-dim" style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4 }}>
-                      <div className="spinner" style={{ width: 12, height: 12, borderWidth: 1.5 }} />
-                      Executing...
+                    <div className="term-line t-dim" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <div className="spinner" style={{ width: 11, height: 11, borderWidth: 1.5 }} />
+                      <span>Executing...</span>
                     </div>
                   )}
                 </div>
 
-                {/* stdin input row */}
+                {/* Stdin input row — VSCode style */}
                 <div className="terminal-stdin-row">
-                  <span className="terminal-prompt">&gt;</span>
-                  <input
+                  <span className="terminal-prompt">
+                    {awaitingInput && !running ? '›' : '$'}
+                  </span>
+                  <textarea
                     ref={stdinRef}
-                    className="terminal-input"
+                    className="terminal-input terminal-textarea"
                     value={stdinVal}
                     onChange={e => setStdinVal(e.target.value)}
-                    onKeyDown={handleTerminalSubmit}
-                    placeholder={awaitingInput ? 'Type stdin and press Enter...' : ''}
+                    onKeyDown={handleTerminalKeyDown}
+                    placeholder={
+                      awaitingInput && !running
+                        ? 'Type stdin · Enter to run · Shift+Enter for newline · ↑↓ history'
+                        : running ? 'Running...' : 'Press Run to execute'
+                    }
                     disabled={running || !awaitingInput}
                     spellCheck={false}
+                    rows={stdinVal.includes('\n') ? Math.min(stdinVal.split('\n').length + 1, 5) : 1}
                   />
                   {awaitingInput && !running && (
                     <button
-                      className="btn btn-p btn-sm"
-                      style={{ flexShrink: 0 }}
+                      className="btn btn-p btn-sm term-run-btn"
                       onClick={() => {
-                        addTermLine(`$ ${stdinVal}`, 't-dim');
+                        if (stdinVal) setCmdHistory(h => [stdinVal, ...h.slice(0, 49)]);
+                        addTermLine(`$ ${stdinVal || '(no input)'}`, 't-dim');
                         run(stdinVal);
                         setAwaitingInput(false);
                       }}
+                      title="Execute (Enter)"
                     >
-                      Execute
+                      Run
                     </button>
                   )}
+                </div>
+
+                <div className="terminal-hint">
+                  {awaitingInput && !running
+                    ? 'Enter to run · Shift+Enter to add a new line (for multi-line input) · ↑↓ command history · Ctrl+L to clear'
+                    : running ? 'Executing in sandbox...' : 'Press ▶ Run button to start a new execution'}
                 </div>
               </div>
             )}
           </div>
 
           {/* Right: analysis panel */}
-          <AnalysisPanel result={result} loading={analyzing} language={lang} />
+          <AnalysisPanel result={result} loading={analyzing} language={lang} code={code} />
         </div>
       </div>
     </div>

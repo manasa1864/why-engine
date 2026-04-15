@@ -63,6 +63,18 @@ async function pushEntry({ id, user_id, entry }) {
   return fmt(data);
 }
 
+async function update({ id, user_id, updates }) {
+  const { data, error } = await supabase
+    .from('chats')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('user_id', user_id)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return fmt(data);
+}
+
 async function findOneAndDelete({ id, user_id }) {
   const { error } = await supabase
     .from('chats')
@@ -98,4 +110,4 @@ async function findHistory({ user_id, limit = 20, offset = 0 }) {
   return (data || []).map(fmt);
 }
 
-module.exports = { findOne, find, findSummary, create, pushEntry, findOneAndDelete, deleteMany, count, findHistory };
+module.exports = { findOne, find, findSummary, create, pushEntry, update, findOneAndDelete, deleteMany, count, findHistory };

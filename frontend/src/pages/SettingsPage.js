@@ -1,95 +1,137 @@
 import { useState, useEffect } from 'react';
 import Sidebar from '../components/common/Sidebar';
-import { useTheme } from '../context/ThemeContext';
 import api from '../utils/api';
 
-/* ── Reusable row ── */
-function SettingsRow({ label, description, children }) {
+function Toggle({ checked, onChange }) {
   return (
-    <div className="settings-row">
-      <div>
-        <div className="settings-label">{label}</div>
-        {description && <div className="settings-desc">{description}</div>}
-      </div>
-      <div className="settings-right">{children}</div>
+    <label className="theme-switch" style={{ cursor: 'pointer' }}>
+      <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} />
+      <span className="theme-track" />
+      <span className="theme-thumb" />
+    </label>
+  );
+}
+
+function ChipRow({ options, value, onChange }) {
+  return (
+    <div className="chip-row">
+      {options.map(o => (
+        <button
+          key={o.value ?? o}
+          className={`chip-btn ${value === (o.value ?? o) ? 'on' : ''}`}
+          onClick={() => onChange(o.value ?? o)}
+        >
+          {o.label ?? o}
+        </button>
+      ))}
     </div>
   );
 }
 
-/* ── Section header ── */
-function Section({ title, children }) {
+function SelectInput({ value, onChange, options }) {
   return (
-    <div className="settings-group">
-      <h3>{title}</h3>
+    <select className="st-select" value={value} onChange={e => onChange(e.target.value)}>
+      {options.map(o => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
+  );
+}
+
+function SettingsRow({ label, description, children }) {
+  return (
+    <div className="st-row">
+      <div className="st-row-left">
+        <div className="st-label">{label}</div>
+        {description && <div className="st-desc">{description}</div>}
+      </div>
+      <div className="st-row-right">{children}</div>
+    </div>
+  );
+}
+
+function Section({ icon, title, children }) {
+  return (
+    <div className="st-section">
+      <div className="st-section-hd">
+        {icon && <span className="st-section-icon">{icon}</span>}
+        <span>{title}</span>
+      </div>
       {children}
     </div>
   );
 }
 
-/* ── Keyboard shortcut display ── */
-function Shortcut({ keys }) {
-  return (
-    <span className="kbd">
-      {keys.map((k, i) => (
-        <span key={i}>
-          <kbd>{k}</kbd>
-          {i < keys.length - 1 && <span style={{ color: 'var(--text-3)', margin: '0 2px' }}>+</span>}
-        </span>
-      ))}
-    </span>
-  );
-}
-
 export default function SettingsPage() {
-  const { theme, toggle } = useTheme();
   const [projects, setProjects] = useState([]);
-  const [health, setHealth]     = useState(null);
-  const [fontSize, setFontSize] = useState(() => parseInt(localStorage.getItem('why_fontSize') || '14'));
-  const [editorTheme, setEditorTheme] = useState(() => localStorage.getItem('why_editorTheme') || 'vs-dark');
-  const [showThinkByDefault, setShowThinkByDefault] = useState(
-    () => localStorage.getItem('why_showThink') !== 'false'
-  );
-  const [hintMode, setHintMode] = useState(
-    () => localStorage.getItem('why_hintMode') || 'progressive'
-  );
-  const [autoAnalyze, setAutoAnalyze] = useState(
-    () => localStorage.getItem('why_autoAnalyze') === 'true'
-  );
+  const [health,   setHealth]   = useState(null);
+  const [saved,    setSaved]    = useState(false);
+
+  /* Appearance */
+  const [fontSize,    setFontSizeS]    = useState(() => parseInt(localStorage.getItem('why_fontSize') || '14'));
+  const [editorTheme, setEditorThemeS] = useState(() => localStorage.getItem('why_editorTheme') || 'vs-dark');
+  const [fontFamily,  setFontFamilyS]  = useState(() => localStorage.getItem('why_fontFamily') || "'JetBrains Mono', monospace");
+  const [lineHeight,  setLineHeightS]  = useState(() => parseFloat(localStorage.getItem('why_lineHeight') || '1.55'));
+
+  /* Editor behaviour */
+  const [tabSize,           setTabSizeS]     = useState(() => parseInt(localStorage.getItem('why_tabSize') || '4'));
+  const [wordWrap,          setWordWrapS]    = useState(() => localStorage.getItem('why_wordWrap') || 'off');
+  const [minimap,           setMinimapS]     = useState(() => localStorage.getItem('why_minimap') !== 'false');
+  const [brackets,          setBracketsS]    = useState(() => localStorage.getItem('why_brackets') !== 'false');
+  const [autocomplete,      setAutocompleteS]= useState(() => localStorage.getItem('why_autocomplete') !== 'false');
+  const [renderWhitespace,  setRenderWSS]    = useState(() => localStorage.getItem('why_renderWS') || 'selection');
+  const [cursorBlinking,    setCursorBlinkS] = useState(() => localStorage.getItem('why_cursorBlinking') || 'smooth');
+
+  /* Workflow */
+  const [showThink,   setShowThinkS]   = useState(() => localStorage.getItem('why_showThink') !== 'false');
+  const [hintMode,    setHintModeS]    = useState(() => localStorage.getItem('why_hintMode') || 'progressive');
+  const [autoAnalyze, setAutoAnalyzeS] = useState(() => localStorage.getItem('why_autoAnalyze') === 'true');
+  const [defaultLang, setDefaultLangS] = useState(() => localStorage.getItem('why_defaultLang') || 'python');
 
   useEffect(() => {
     api.get('/projects').then(r => setProjects(r.data)).catch(() => {});
     api.get('/health').then(r => setHealth(r.data)).catch(() => setHealth({ status: 'unreachable' }));
   }, []);
 
-  /* ── Persist preferences ── */
-  const setFs = v => { setFontSize(v); localStorage.setItem('why_fontSize', v); };
-  const setEt = v => { setEditorTheme(v); localStorage.setItem('why_editorTheme', v); };
-  const setStd = v => { setShowThinkByDefault(v); localStorage.setItem('why_showThink', v); };
-  const setHm  = v => { setHintMode(v); localStorage.setItem('why_hintMode', v); };
-  const setAa  = v => { setAutoAnalyze(v); localStorage.setItem('why_autoAnalyze', v); };
+  const flash = () => { setSaved(true); setTimeout(() => setSaved(false), 1400); };
 
-  /* ── API status helpers ── */
-  function StatusBadge({ configured, label }) {
-    const cls = health === null ? 'unk' : configured ? 'ok' : 'err';
-    const text = health === null ? 'Checking...' : configured ? 'Configured' : 'Not configured';
-    return (
-      <div className={`api-status ${cls}`}>
-        <div className="api-status-dot" />
-        {label}: {text}
-      </div>
-    );
-  }
+  const save = (key, val) => { localStorage.setItem(key, val); flash(); };
 
-  /* ── Toggle switch ── */
-  function Toggle({ checked, onChange, label }) {
-    return (
-      <label className="theme-switch" title={label} style={{ cursor: 'pointer' }}>
-        <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} />
-        <span className="theme-track" />
-        <span className="theme-thumb" />
-      </label>
-    );
-  }
+  const setFontSize    = v => { setFontSizeS(v);    save('why_fontSize', v); };
+  const setEditorTheme = v => { setEditorThemeS(v); save('why_editorTheme', v); };
+  const setFontFamily  = v => { setFontFamilyS(v);  save('why_fontFamily', v); };
+  const setLineHeight  = v => { setLineHeightS(v);  save('why_lineHeight', v); };
+  const setTabSize     = v => { setTabSizeS(v);     save('why_tabSize', v); };
+  const setWordWrap    = v => { setWordWrapS(v);     save('why_wordWrap', v); };
+  const setMinimap     = v => { setMinimapS(v);      save('why_minimap', v); };
+  const setBrackets    = v => { setBracketsS(v);     save('why_brackets', v); };
+  const setAC          = v => { setAutocompleteS(v); save('why_autocomplete', v); };
+  const setRenderWS    = v => { setRenderWSS(v);     save('why_renderWS', v); };
+  const setCursorBlink = v => { setCursorBlinkS(v);  save('why_cursorBlinking', v); };
+  const setShowThink   = v => { setShowThinkS(v);    save('why_showThink', v); };
+  const setHintMode    = v => { setHintModeS(v);     save('why_hintMode', v); };
+  const setAutoAnalyze = v => { setAutoAnalyzeS(v);  save('why_autoAnalyze', v); };
+  const setDefaultLang = v => { setDefaultLangS(v);  save('why_defaultLang', v); };
+
+  const serviceStatus = (key) => {
+    if (health === null) return 'unk';
+    return health?.[key] === 'configured' ? 'ok' : 'err';
+  };
+  const serviceText = (key) => {
+    if (health === null) return 'Checking…';
+    return health?.[key] === 'configured' ? 'Connected' : 'Not configured';
+  };
+
+  const SHORTCUTS = [
+    { action: 'Run code',          keys: ['Ctrl', 'Enter'] },
+    { action: 'Full WHY analysis', keys: ['Ctrl', 'Shift', 'A'] },
+    { action: 'Toggle thinking',   keys: ['Ctrl', 'Shift', 'T'] },
+    { action: 'New analysis',      keys: ['Ctrl', 'Shift', 'N'] },
+    { action: 'Clear terminal',    keys: ['Ctrl', 'L'] },
+    { action: 'Go to Dashboard',   keys: ['Ctrl', 'Shift', '1'] },
+    { action: 'Go to Profile',     keys: ['Ctrl', 'Shift', '2'] },
+    { action: 'Go to Settings',    keys: ['Ctrl', 'Shift', '3'] },
+  ];
 
   return (
     <div className="app">
@@ -98,144 +140,209 @@ export default function SettingsPage() {
         onSelectProject={() => {}} onSelectChat={() => {}}
         onNewProject={() => {}} onNewChat={() => {}}
       />
-
       <div className="main">
-        <div className="settings">
-          <h2>Settings</h2>
-          <p>Customize your WHY Engine experience. Preferences are saved to your browser.</p>
+        <div className="st-page">
+
+          {/* Header */}
+          <div className="st-hd">
+            <div className="st-hd-icon">⚙</div>
+            <div>
+              <h2 className="st-hd-title">Settings</h2>
+              <p className="st-hd-sub">All changes save instantly to your browser.</p>
+            </div>
+            {saved && (
+              <div className="st-saved-badge">&#10003; Saved</div>
+            )}
+          </div>
 
           {/* ── Appearance ── */}
-          <Section title="Appearance">
-            <SettingsRow
-              label="Theme"
-              description="Switch between dark and light mode"
-            >
-              <span style={{ fontSize: '.8rem', color: 'var(--text-3)' }}>
-                {theme === 'dark' ? 'Dark' : 'Light'}
-              </span>
-              <Toggle checked={theme === 'light'} onChange={toggle} label="Toggle theme" />
-            </SettingsRow>
-
-            <SettingsRow label="Editor Font Size" description="Applies to the code editor">
-              <div className="font-size-sel">
-                {[12, 13, 14, 15, 16, 18].map(s => (
-                  <button
-                    key={s}
-                    className={`font-size-btn ${fontSize === s ? 'on' : ''}`}
-                    onClick={() => setFs(s)}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </SettingsRow>
-
-            <SettingsRow label="Editor Theme" description="Visual theme inside the Monaco editor">
-              <select
-                value={editorTheme}
-                onChange={e => setEt(e.target.value)}
-                style={{ fontSize: '.81rem', padding: '4px 10px' }}
-              >
-                <option value="vs-dark">Dark (VS Code)</option>
-                <option value="vs">Light (VS Code)</option>
-                <option value="hc-black">High Contrast Dark</option>
-              </select>
-            </SettingsRow>
-          </Section>
-
-          {/* ── Workspace ── */}
-          <Section title="Workspace">
-            <SettingsRow
-              label="Show Thinking Panel by Default"
-              description="The pre-coding thinking section above the editor"
-            >
-              <Toggle
-                checked={showThinkByDefault}
-                onChange={setStd}
-                label="Toggle thinking panel default"
+          <Section icon="" title="Appearance">
+            <SettingsRow label="Editor Font Size" description="Size of code text inside Monaco">
+              <ChipRow
+                options={[12,13,14,15,16,18,20].map(s => ({ value: s, label: String(s) }))}
+                value={fontSize}
+                onChange={setFontSize}
               />
             </SettingsRow>
-
-            <SettingsRow
-              label="Hint Mode"
-              description="How hints are revealed in the WHY Analysis panel"
-            >
-              <select
-                value={hintMode}
-                onChange={e => setHm(e.target.value)}
-                style={{ fontSize: '.81rem', padding: '4px 10px' }}
-              >
-                <option value="progressive">Progressive (click to reveal)</option>
-                <option value="all-hidden">All hidden — manual reveal</option>
-                <option value="all-visible">Always visible</option>
-              </select>
+            <SettingsRow label="Editor Theme" description="Colour theme inside the code editor">
+              <SelectInput value={editorTheme} onChange={setEditorTheme} options={[
+                { value: 'vs-dark',  label: 'Dark (VS Code)' },
+                { value: 'vs',       label: 'Light (VS Code)' },
+                { value: 'hc-black', label: 'High Contrast' },
+              ]} />
             </SettingsRow>
-
-            <SettingsRow
-              label="Auto-Analyze on Run"
-              description="Automatically trigger full analysis after each Run (costs more time)"
-            >
-              <Toggle checked={autoAnalyze} onChange={setAa} label="Auto analyze toggle" />
+            <SettingsRow label="Font Family" description="Monospace font used in the editor">
+              <SelectInput value={fontFamily} onChange={setFontFamily} options={[
+                { value: "'JetBrains Mono', monospace", label: 'JetBrains Mono' },
+                { value: "'Fira Code', monospace",       label: 'Fira Code' },
+                { value: "'Cascadia Code', monospace",   label: 'Cascadia Code' },
+                { value: "'Consolas', monospace",        label: 'Consolas' },
+                { value: "'Courier New', monospace",     label: 'Courier New' },
+                { value: 'monospace',                    label: 'System Default' },
+              ]} />
+            </SettingsRow>
+            <SettingsRow label="Line Height" description="Vertical spacing between code lines">
+              <ChipRow
+                options={[1.4, 1.5, 1.55, 1.6, 1.7, 1.8].map(v => ({ value: v, label: String(v) }))}
+                value={lineHeight}
+                onChange={setLineHeight}
+              />
             </SettingsRow>
           </Section>
 
-          {/* ── Keyboard shortcuts ── */}
-          <Section title="Keyboard Shortcuts">
-            {[
-              { action: 'Run code',          keys: ['Ctrl', 'Enter'] },
-              { action: 'Full analysis',      keys: ['Ctrl', 'Shift', 'A'] },
-              { action: 'Toggle thinking',    keys: ['Ctrl', 'Shift', 'T'] },
-              { action: 'New analysis (chat)', keys: ['Ctrl', 'Shift', 'N'] },
-              { action: 'Clear terminal',     keys: ['Ctrl', 'L'] },
-              { action: 'Toggle theme',       keys: ['Ctrl', 'Shift', 'D'] },
-              { action: 'Go to Dashboard',    keys: ['Ctrl', 'Shift', '1'] },
-              { action: 'Go to Profile',      keys: ['Ctrl', 'Shift', '2'] },
-              { action: 'Go to Settings',     keys: ['Ctrl', 'Shift', '3'] },
-            ].map(s => (
-              <SettingsRow key={s.action} label={s.action}>
-                <Shortcut keys={s.keys} />
-              </SettingsRow>
-            ))}
+          {/* ── Editor Behaviour ── */}
+          <Section icon="" title="Editor Behaviour">
+            <SettingsRow label="Tab Size" description="Spaces per indent level">
+              <ChipRow
+                options={[2, 4, 8].map(s => ({ value: s, label: String(s) }))}
+                value={tabSize}
+                onChange={setTabSize}
+              />
+            </SettingsRow>
+            <SettingsRow label="Word Wrap" description="Wrap long lines">
+              <ChipRow
+                options={[
+                  { value: 'off',     label: 'Off' },
+                  { value: 'on',      label: 'On' },
+                  { value: 'bounded', label: 'Bounded' },
+                ]}
+                value={wordWrap}
+                onChange={setWordWrap}
+              />
+            </SettingsRow>
+            <SettingsRow label="Minimap" description="Code overview on the right side">
+              <Toggle checked={minimap} onChange={setMinimap} />
+            </SettingsRow>
+            <SettingsRow label="Bracket Pair Colorization" description="Colour matching brackets differently">
+              <Toggle checked={brackets} onChange={setBrackets} />
+            </SettingsRow>
+            <SettingsRow label="Autocomplete / IntelliSense" description="Keyword and snippet suggestions">
+              <Toggle checked={autocomplete} onChange={setAC} />
+            </SettingsRow>
+            <SettingsRow label="Render Whitespace" description="Show invisible characters">
+              <SelectInput value={renderWhitespace} onChange={setRenderWS} options={[
+                { value: 'none',      label: 'None' },
+                { value: 'selection', label: 'Selection only' },
+                { value: 'trailing',  label: 'Trailing only' },
+                { value: 'all',       label: 'All' },
+              ]} />
+            </SettingsRow>
+            <SettingsRow label="Cursor Blinking" description="Animation style for the cursor">
+              <SelectInput value={cursorBlinking} onChange={setCursorBlink} options={[
+                { value: 'blink',  label: 'Blink' },
+                { value: 'smooth', label: 'Smooth' },
+                { value: 'phase',  label: 'Phase' },
+                { value: 'expand', label: 'Expand' },
+                { value: 'solid',  label: 'Solid (no blink)' },
+              ]} />
+            </SettingsRow>
           </Section>
 
-          {/* ── API Status ── */}
-          <Section title="Service Status">
-            <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 10 }}>
-              <div style={{ fontSize: '.84rem', color: 'var(--text-2)', fontWeight: 500 }}>
-                Backend services used by WHY Engine
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                <StatusBadge label="Groq AI"   configured={health?.groq   === 'configured'} />
-                <StatusBadge label="Judge0"    configured={health?.judge0 === 'configured'} />
-                <StatusBadge label="Database"  configured={health?.supabase === 'configured'} />
-                <div className={`api-status ${health?.status === 'ok' ? 'ok' : 'err'}`}>
-                  <div className="api-status-dot" />
-                  Backend: {health?.status === 'ok' ? 'Online' : health === null ? 'Checking...' : 'Offline'}
+          {/* ── Workflow ── */}
+          <Section icon="" title="Workflow">
+            <SettingsRow label="Default Language" description="Pre-selected language for new analyses">
+              <SelectInput value={defaultLang} onChange={setDefaultLang} options={[
+                { value: 'python',     label: 'Python' },
+                { value: 'javascript', label: 'JavaScript' },
+                { value: 'typescript', label: 'TypeScript' },
+                { value: 'cpp',        label: 'C++' },
+                { value: 'c',          label: 'C' },
+                { value: 'java',       label: 'Java' },
+                { value: 'go',         label: 'Go' },
+                { value: 'rust',       label: 'Rust' },
+                { value: 'ruby',       label: 'Ruby' },
+              ]} />
+            </SettingsRow>
+            <SettingsRow label="Show Thinking Panel by Default" description="Pre-coding thinking section above the editor">
+              <Toggle checked={showThink} onChange={setShowThink} />
+            </SettingsRow>
+            <SettingsRow label="Hint Reveal Mode" description="How hints are revealed in WHY Analysis">
+              <SelectInput value={hintMode} onChange={setHintMode} options={[
+                { value: 'progressive', label: 'Progressive (click to reveal)' },
+                { value: 'all-hidden',  label: 'All hidden — manual reveal' },
+                { value: 'all-visible', label: 'Always visible' },
+              ]} />
+            </SettingsRow>
+            <SettingsRow label="Auto-Analyze on Run" description="Trigger full WHY pipeline after every Run">
+              <Toggle checked={autoAnalyze} onChange={setAutoAnalyze} />
+            </SettingsRow>
+          </Section>
+
+          {/* ── Keyboard Shortcuts ── */}
+          <Section icon="" title="Keyboard Shortcuts">
+            <div className="st-shortcuts">
+              {SHORTCUTS.map(s => (
+                <div key={s.action} className="st-shortcut">
+                  <span className="st-shortcut-action">{s.action}</span>
+                  <span className="st-shortcut-keys">
+                    {s.keys.map((k, i) => (
+                      <span key={i}>
+                        <kbd>{k}</kbd>
+                        {i < s.keys.length - 1 && <span className="st-plus">+</span>}
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Section>
+
+          {/* ── Service Status ── */}
+          <Section icon="" title="Service Status">
+            <div className="st-services">
+              {[
+                { key: 'groq',     label: 'Groq AI',  icon: '' },
+                { key: 'judge0',   label: 'Judge0',   icon: '' },
+                { key: 'supabase', label: 'Supabase', icon: '' },
+              ].map(svc => (
+                <div key={svc.key} className={`st-svc st-svc-${serviceStatus(svc.key)}`}>
+                  <span className="st-svc-dot" />
+                  <span className="st-svc-icon">{svc.icon}</span>
+                  <div>
+                    <div className="st-svc-name">{svc.label}</div>
+                    <div className="st-svc-text">{serviceText(svc.key)}</div>
+                  </div>
+                </div>
+              ))}
+              <div className={`st-svc st-svc-${health?.status === 'ok' ? 'ok' : health === null ? 'unk' : 'err'}`}>
+                <span className="st-svc-dot" />
+                <span className="st-svc-icon"></span>
+                <div>
+                  <div className="st-svc-name">Backend</div>
+                  <div className="st-svc-text">
+                    {health === null ? 'Checking…' : health?.status === 'ok' ? 'Online' : 'Offline'}
+                  </div>
                 </div>
               </div>
-              <div style={{ fontSize: '.77rem', color: 'var(--text-3)', marginTop: 2 }}>
-                Configure API keys in <code style={{ fontFamily: 'var(--mono)', background: 'var(--bg-tertiary)', padding: '1px 5px', borderRadius: 3 }}>backend/.env</code> to unlock full analysis.
-              </div>
+            </div>
+            <div className="st-env-hint">
+              Set API keys in{' '}
+              <code>backend/.env</code>
+              {' '}to enable AI analysis, deep explanations, and test-case scoring.
             </div>
           </Section>
 
           {/* ── About ── */}
-          <Section title="About">
-            <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
-              <div style={{ fontSize: '.9rem', fontWeight: 700 }}>WHY Engine for Programmers</div>
-              <div style={{ fontSize: '.8rem', color: 'var(--text-3)', lineHeight: 1.65 }}>
-                An AI-powered cognitive coding coach that analyzes not just code errors — but the
-                developer's thinking mistakes. Powered by Groq (Llama 3.3), Judge0 execution, AST
-                static analysis, and a multi-engine cognitive pipeline.
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+          <Section icon="" title="About WHY Engine">
+            <div className="st-about">
+              <div className="st-about-title">WHY Engine for Programmers v2.1</div>
+              <p className="st-about-desc">
+                An AI-powered cognitive coding coach that analyses not just code errors — but the
+                developer's <em>thinking mistakes</em>. Features a 15-step reasoning pipeline,
+                Groq AI deep explanations, Judge0 sandboxed execution, AST static analysis,
+                smart test-case oracle scoring, and per-session skill profiling.
+              </p>
+              <div className="st-tags">
                 <span className="tag tag-c">Groq · Llama 3.3</span>
                 <span className="tag tag-i">Judge0 Execution</span>
                 <span className="tag tag-s">AST Static Analysis</span>
                 <span className="tag tag-w">Cognitive Taxonomy</span>
+                <span className="tag tag-e">15-Step Pipeline</span>
+                <span className="tag tag-c">Oracle Test Scoring</span>
               </div>
             </div>
           </Section>
+
         </div>
       </div>
     </div>
