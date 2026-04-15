@@ -20,6 +20,17 @@ router.post('/', auth, projectRules, async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Failed to create project' }); }
 });
 
+router.patch('/:id', auth, async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'Name is required' });
+    const existing = await Project.findOne({ id: req.params.id, user_id: req.userId });
+    if (!existing) return res.status(404).json({ error: 'Project not found' });
+    const proj = await Project.findByIdAndUpdate(req.params.id, { name: name.trim() });
+    res.json(proj);
+  } catch (e) { res.status(500).json({ error: 'Failed to rename project' }); }
+});
+
 router.delete('/:id', auth, async (req, res) => {
   try {
     await Project.findByIdAndDelete({ id: req.params.id, user_id: req.userId });
@@ -31,6 +42,23 @@ router.delete('/:id', auth, async (req, res) => {
 router.get('/:id/chats', auth, async (req, res) => {
   try { res.json(await Chat.findSummary({ user_id: req.userId, project_id: req.params.id })); }
   catch (e) { res.status(500).json({ error: 'Failed to fetch chats' }); }
+});
+
+router.patch('/:id/chats/:chatId', auth, async (req, res) => {
+  try {
+    const { title } = req.body;
+    if (!title?.trim()) return res.status(400).json({ error: 'Title is required' });
+    const chat = await Chat.update({ id: req.params.chatId, user_id: req.userId, updates: { title: title.trim() } });
+    if (!chat) return res.status(404).json({ error: 'Chat not found' });
+    res.json(chat);
+  } catch (e) { res.status(500).json({ error: 'Failed to rename chat' }); }
+});
+
+router.delete('/:id/chats/:chatId', auth, async (req, res) => {
+  try {
+    await Chat.findOneAndDelete({ id: req.params.chatId, user_id: req.userId });
+    res.json({ message: 'Deleted' });
+  } catch (e) { res.status(500).json({ error: 'Failed to delete chat' }); }
 });
 
 router.post('/:id/chats', auth, async (req, res) => {

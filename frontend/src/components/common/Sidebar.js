@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { useTheme } from '../../context/ThemeContext';
 
 /* SVG icon helpers — no emojis */
 function Icon({ d, size = 16 }) {
@@ -22,20 +21,48 @@ const ICONS = {
   folder:    'M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z',
   chat:      'M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z',
   logout:    'M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9',
-  plus:      'M12 5v14M5 12h14',
+  pencil:    'M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z',
+  trash:     'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6',
 };
+
+/* Small icon-only action button */
+function ActBtn({ d, onClick, danger, title }) {
+  return (
+    <button
+      className={`sb-act-btn${danger ? ' danger' : ''}`}
+      onClick={onClick}
+      title={title}
+      tabIndex={-1}
+    >
+      <svg width={11} height={11} viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d={d} />
+      </svg>
+    </button>
+  );
+}
 
 export default function Sidebar({
   projects = [], chats = [],
   activeProject, activeChat,
   onSelectProject, onSelectChat, onNewProject, onNewChat,
+  onRenameProject, onDeleteProject,
+  onRenameChat,    onDeleteChat,
 }) {
   const { user, logout } = useAuth();
-  const { theme, toggle } = useTheme();
   const nav = useNavigate();
   const loc = useLocation();
+
   const [showNewProj, setShowNewProj] = useState(false);
-  const [projName, setProjName] = useState('');
+  const [projName,    setProjName]    = useState('');
+
+  /* Rename state for projects */
+  const [editingProjId,  setEditingProjId]  = useState(null);
+  const [editProjName,   setEditProjName]   = useState('');
+
+  /* Rename state for chats */
+  const [editingChatId,  setEditingChatId]  = useState(null);
+  const [editChatTitle,  setEditChatTitle]  = useState('');
 
   const create = () => {
     if (projName.trim()) {
@@ -43,6 +70,16 @@ export default function Sidebar({
       setProjName('');
       setShowNewProj(false);
     }
+  };
+
+  const commitProjRename = (id) => {
+    if (editProjName.trim() && onRenameProject) onRenameProject(id, editProjName.trim());
+    setEditingProjId(null);
+  };
+
+  const commitChatRename = (projId, chatId) => {
+    if (editChatTitle.trim() && onRenameChat) onRenameChat(projId, chatId, editChatTitle.trim());
+    setEditingChatId(null);
   };
 
   return (
@@ -58,33 +95,17 @@ export default function Sidebar({
 
       {/* Navigation */}
       <div className="sb-nav">
-        <button
-          className={`nav-i ${loc.pathname === '/' ? 'on' : ''}`}
-          onClick={() => nav('/')}
-        >
-          <Icon d={ICONS.workspace} />
-          Workspace
+        <button className={`nav-i ${loc.pathname === '/' ? 'on' : ''}`} onClick={() => nav('/')}>
+          <Icon d={ICONS.workspace} />Workspace
         </button>
-        <button
-          className={`nav-i ${loc.pathname === '/dashboard' ? 'on' : ''}`}
-          onClick={() => nav('/dashboard')}
-        >
-          <Icon d={ICONS.dashboard} />
-          Dashboard
+        <button className={`nav-i ${loc.pathname === '/dashboard' ? 'on' : ''}`} onClick={() => nav('/dashboard')}>
+          <Icon d={ICONS.dashboard} />Dashboard
         </button>
-        <button
-          className={`nav-i ${loc.pathname === '/profile' ? 'on' : ''}`}
-          onClick={() => nav('/profile')}
-        >
-          <Icon d={ICONS.profile} />
-          Thinking Profile
+        <button className={`nav-i ${loc.pathname === '/profile' ? 'on' : ''}`} onClick={() => nav('/profile')}>
+          <Icon d={ICONS.profile} />Thinking Profile
         </button>
-        <button
-          className={`nav-i ${loc.pathname === '/settings' ? 'on' : ''}`}
-          onClick={() => nav('/settings')}
-        >
-          <Icon d={ICONS.settings} />
-          Settings
+        <button className={`nav-i ${loc.pathname === '/settings' ? 'on' : ''}`} onClick={() => nav('/settings')}>
+          <Icon d={ICONS.settings} />Settings
         </button>
       </div>
 
@@ -108,7 +129,10 @@ export default function Sidebar({
             value={projName}
             onChange={e => setProjName(e.target.value)}
             placeholder="Project name..."
-            onKeyDown={e => { if (e.key === 'Enter') create(); if (e.key === 'Escape') setShowNewProj(false); }}
+            onKeyDown={e => {
+              if (e.key === 'Enter') create();
+              if (e.key === 'Escape') setShowNewProj(false);
+            }}
             autoFocus
           />
           <button className="btn btn-p btn-sm" onClick={create}>Add</button>
@@ -127,23 +151,98 @@ export default function Sidebar({
         ) : (
           projects.map(p => (
             <div key={p._id}>
-              <div
-                className={`p-item ${activeProject?._id === p._id ? 'on' : ''}`}
-                onClick={() => onSelectProject(p)}
-              >
-                <Icon d={ICONS.folder} size={14} />
-                {p.name}
-              </div>
+              {/* ── Project row ── */}
+              {editingProjId === p._id ? (
+                <div className="sb-inp" style={{ padding: '4px 8px 6px' }}>
+                  <input
+                    value={editProjName}
+                    onChange={e => setEditProjName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') commitProjRename(p._id);
+                      if (e.key === 'Escape') setEditingProjId(null);
+                    }}
+                    autoFocus
+                  />
+                  <button className="btn btn-p btn-sm" onClick={() => commitProjRename(p._id)}>OK</button>
+                  <button className="btn btn-g btn-sm" onClick={() => setEditingProjId(null)}>&times;</button>
+                </div>
+              ) : (
+                <div
+                  className={`p-item ${activeProject?._id === p._id ? 'on' : ''}`}
+                  onClick={() => onSelectProject(p)}
+                >
+                  <Icon d={ICONS.folder} size={14} />
+                  <span className="sb-item-name">{p.name}</span>
+                  <div className="sb-item-actions">
+                    <ActBtn
+                      d={ICONS.pencil}
+                      title="Rename project"
+                      onClick={e => {
+                        e.stopPropagation();
+                        setEditingProjId(p._id);
+                        setEditProjName(p.name);
+                      }}
+                    />
+                    <ActBtn
+                      d={ICONS.trash}
+                      title="Delete project"
+                      danger
+                      onClick={e => {
+                        e.stopPropagation();
+                        if (onDeleteProject) onDeleteProject(p._id);
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* ── Chat rows (only when project is active) ── */}
               {activeProject?._id === p._id && (
                 <>
                   {chats.map(c => (
-                    <div
-                      key={c._id}
-                      className={`c-item ${activeChat?._id === c._id ? 'on' : ''}`}
-                      onClick={() => onSelectChat(c)}
-                    >
-                      {c.title}
-                    </div>
+                    editingChatId === c._id ? (
+                      <div key={c._id} className="sb-inp" style={{ padding: '3px 8px 5px 28px' }}>
+                        <input
+                          value={editChatTitle}
+                          onChange={e => setEditChatTitle(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') commitChatRename(p._id, c._id);
+                            if (e.key === 'Escape') setEditingChatId(null);
+                          }}
+                          autoFocus
+                        />
+                        <button className="btn btn-p btn-sm" onClick={() => commitChatRename(p._id, c._id)}>OK</button>
+                        <button className="btn btn-g btn-sm" onClick={() => setEditingChatId(null)}>&times;</button>
+                      </div>
+                    ) : (
+                      <div
+                        key={c._id}
+                        className={`c-item ${activeChat?._id === c._id ? 'on' : ''}`}
+                        onClick={() => onSelectChat(c)}
+                      >
+                        <span className="sb-item-name">{c.title}</span>
+                        <div className="sb-item-actions">
+                          <ActBtn
+                            d={ICONS.pencil}
+                            title="Rename analysis"
+                            onClick={e => {
+                              e.stopPropagation();
+                              setEditingChatId(c._id);
+                              setEditChatTitle(c.title);
+                            }}
+                          />
+                          <ActBtn
+                            d={ICONS.trash}
+                            title="Delete analysis"
+                            danger
+                            onClick={e => {
+                              e.stopPropagation();
+                              if (onDeleteChat) onDeleteChat(p._id, c._id);
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )
                   ))}
                   <button className="new-c" onClick={onNewChat}>
                     + New Analysis
@@ -157,7 +256,6 @@ export default function Sidebar({
 
       {/* Footer */}
       <div className="sb-foot">
-        {/* User info */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div className="avatar">
             {user?.username?.[0]?.toUpperCase() || '?'}
@@ -165,20 +263,7 @@ export default function Sidebar({
           <span style={{ fontSize: '.82rem', fontWeight: 600 }}>{user?.username}</span>
         </div>
 
-        {/* Controls */}
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          {/* Dark / light toggle switch */}
-          <label className="theme-switch" title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
-            <input
-              type="checkbox"
-              checked={theme === 'light'}
-              onChange={toggle}
-            />
-            <span className="theme-track" />
-            <span className="theme-thumb" />
-          </label>
-
-          {/* Logout */}
           <button className="btn-i" onClick={logout} title="Sign out">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
